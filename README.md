@@ -112,12 +112,43 @@ target account — so Terragrunt no longer needs to look the account up:
   writes (`/org/tf/state-bucket`, `/org/tf/deploy-role-arn`) instead of being
   reconstructed by string convention.
 
+## Local plans (least privilege)
+
+CI applies as `CodeDeployRole` (OIDC only). Humans get a separate **read-only
+`CodePlanRole`** so local plans match CI without granting apply rights. Set
+`PlanRoleTrustedPrincipalArns` to your SSO permission-set role pattern to create
+it (leave blank to skip — CI-only account):
+
+```
+arn:aws:iam::*:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_InfraDeveloper_*
+```
+
+It grants `ReadOnlyAccess` plus just enough S3 to read state and acquire the
+native lock. Engineers chain into it via an AWS profile:
+
+```ini
+# ~/.aws/config
+[profile sandbox-sso]
+sso_session = corp
+sso_account_id = 111122223333
+sso_role_name = InfraDeveloper
+
+[profile sandbox-plan]
+role_arn = arn:aws:iam::111122223333:role/Org/CodePlanRole
+source_profile = sandbox-sso
+```
+
+```bash
+aws sso login --profile sandbox-sso
+AWS_PROFILE=sandbox-plan terragrunt plan
+```
+
 ## Parameters
 
 See `templates/account-seed.yaml` for the full list. The ones you'll usually
-set: `GitHubSubjectClaims`, `BudgetNotificationEmail`, `BudgetLimitUSD`, and
-`CreateOIDCProvider=false` if the account already has a
-GitHub OIDC provider (only one is allowed per account).
+set: `GitHubSubjectClaims`, `PlanRoleTrustedPrincipalArns`,
+`BudgetNotificationEmail`, `BudgetLimitUSD`, and `CreateOIDCProvider=false` if
+the account already has a GitHub OIDC provider (only one is allowed per account).
 
 ## Notes
 

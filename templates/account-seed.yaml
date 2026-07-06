@@ -49,7 +49,26 @@ Parameters:
     Default: 3600
     MinValue: 3600
     MaxValue: 43200
-    Description: Max deploy-role session length (hubless = single hop, can be long).
+    Description: Max role session length (hubless = single hop, can be long).
+
+  PlanRoleName:
+    Type: String
+    Default: CodePlanRole
+    Description: Read-only role humans assume (via SSO) for local plans.
+
+  PlanRoleTrustedPrincipalArns:
+    Type: CommaDelimitedList
+    Default: ""
+    Description: >-
+      IAM principal ARN patterns (ArnLike) allowed to assume the read-only
+      plan role — typically your SSO permission-set roles, e.g.
+      "arn:aws:iam::*:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_InfraDeveloper_*".
+      Leave blank to skip the plan role (CI-only account).
+
+  PlanRoleManagedPolicyArns:
+    Type: CommaDelimitedList
+    Default: arn:aws:iam::aws:policy/ReadOnlyAccess
+    Description: Managed policies for the plan role. Read-only by default.
 
   AccountAlias:
     Type: String
@@ -80,6 +99,7 @@ Conditions:
   ShouldCreateOIDC: !Equals [!Ref CreateOIDCProvider, "true"]
   HasAlias: !Not [!Equals [!Ref AccountAlias, ""]]
   HasBudgetEmail: !Not [!Equals [!Ref BudgetNotificationEmail, ""]]
+  HasPlanRole: !Not [!Equals [!Join ["", !Ref PlanRoleTrustedPrincipalArns], ""]]
 
 # ---------------------------------------------------------------------------
 # Resources
@@ -127,6 +147,51 @@ Resources:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
               StringLike:
                 token.actions.githubusercontent.com:sub: !Ref GitHubSubjectClaims
+      Tags:
+        - { Key: managed-by, Value: aws-account-bootstrap }
+
+  # Read-only role humans assume (via their SSO permission set) to run local
+  # plans that match CI. Created only when trusted principals are supplied.
+  PlanRole:
+    Type: AWS::IAM::Role
+    Condition: HasPlanRole
+    Properties:
+      RoleName: !Ref PlanRoleName
+      Path: !Ref DeployRolePath
+      MaxSessionDuration: !Ref MaxSessionDurationSeconds
+      ManagedPolicyArns: !Ref PlanRoleManagedPolicyArns
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              AWS: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:root
+            Condition:
+              # Wildcard-friendly: SSO role ARNs carry a random suffix.
+              ArnLike:
+                aws:PrincipalArn: !Ref PlanRoleTrustedPrincipalArns
+      Policies:
+        # Guarantee state access regardless of the managed policy choice:
+        # read the state object and acquire/release the native S3 lock.
+        - PolicyName: terraform-state-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadState
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt StateBucket.Arn
+                  - !Sub ${StateBucket.Arn}/*
+              - Sid: StateLock
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub ${StateBucket.Arn}/*.tflock
       Tags:
         - { Key: managed-by, Value: aws-account-bootstrap }
 
@@ -266,3 +331,9 @@ Outputs:
       - ShouldCreateOIDC
       - !Ref GitHubOIDCProvider
       - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+  PlanRoleArn:
+    Condition: HasPlanRole
+    Description: Read-only role for local plans (chain SSO -> this role).
+    Value: !GetAtt PlanRole.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-PlanRoleArn

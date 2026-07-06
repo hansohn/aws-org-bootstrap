@@ -16,6 +16,10 @@
     "ParameterValue": "/Org/"
   },
   {
+    "ParameterKey": "PlanRoleTrustedPrincipalArns",
+    "ParameterValue": "arn:aws:iam::*:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_InfraDeveloper_*"
+  },
+  {
     "ParameterKey": "BudgetLimitUSD",
     "ParameterValue": "100"
   },
