@@ -115,8 +115,8 @@ target account — so Terragrunt no longer needs to look the account up:
 ## Parameters
 
 See `templates/account-seed.yaml` for the full list. The ones you'll usually
-set: `GitHubSubjectClaims`, `AccountAlias`, `BudgetNotificationEmail`,
-`BudgetLimitUSD`, and `CreateOIDCProvider=false` if the account already has a
+set: `GitHubSubjectClaims`, `BudgetNotificationEmail`, `BudgetLimitUSD`, and
+`CreateOIDCProvider=false` if the account already has a
 GitHub OIDC provider (only one is allowed per account).
 
 ## Notes

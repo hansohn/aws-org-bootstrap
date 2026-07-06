@@ -16,10 +16,6 @@
     "ParameterValue": "/Org/"
   },
   {
-    "ParameterKey": "AccountAlias",
-    "ParameterValue": "sandbox"
-  },
-  {
     "ParameterKey": "BudgetLimitUSD",
     "ParameterValue": "100"
   },
