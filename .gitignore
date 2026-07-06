@@ -1,0 +1,11 @@
+# Real parameter files hold account aliases / emails — keep them out of git.
+# Commit params/*.example.json only.
+params/*.json
+!params/*.example.json
+
+# Local tooling
+.DS_Store
+*.log
+.venv/
+__pycache__/
+packaged.yaml

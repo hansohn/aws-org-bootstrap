@@ -1,0 +1,268 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Hubless per-account Terraform/Terragrunt bootstrap seed. Creates a GitHub
+  OIDC provider, a deploy role that GitHub Actions assumes DIRECTLY in this
+  account, an S3 backend bucket with native locking, SSM self-registration,
+  and a monthly cost budget. No central CI account and no role chaining.
+
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
+Parameters:
+  GitHubSubjectClaims:
+    Type: CommaDelimitedList
+    Description: >-
+      Full OIDC `sub` claim patterns allowed to assume the deploy role, e.g.
+      "repo:hansohn/terragrunt-aws-template:ref:refs/heads/main". Wildcards
+      allowed ("repo:hansohn/infra:*"). One entry per repo/environment.
+
+  CreateOIDCProvider:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      Create the GitHub OIDC provider in this account. Set "false" if the
+      account already has a token.actions.githubusercontent.com provider
+      (only one is allowed per account); the deploy role still binds to it.
+
+  DeployRoleName:
+    Type: String
+    Default: CodeDeployRole
+    Description: Name of the role GitHub assumes to deploy in this account.
+
+  DeployRolePath:
+    Type: String
+    Default: /Org/
+    Description: IAM path for the deploy role (must start and end with "/").
+    AllowedPattern: ^/.*/$
+
+  DeployRoleManagedPolicyArns:
+    Type: CommaDelimitedList
+    Default: arn:aws:iam::aws:policy/AdministratorAccess
+    Description: >-
+      Managed policies attached to the deploy role. Defaults to
+      AdministratorAccess for a bootstrap deployer; scope this down for
+      least privilege once your resource footprint is known.
+
+  MaxSessionDurationSeconds:
+    Type: Number
+    Default: 3600
+    MinValue: 3600
+    MaxValue: 43200
+    Description: Max deploy-role session length (hubless = single hop, can be long).
+
+  AccountAlias:
+    Type: String
+    Default: ""
+    Description: >-
+      Short account alias (e.g. "sandbox"). Used for the state bucket name
+      and tags. If blank, resources fall back to account-id-based names.
+
+  BudgetLimitUSD:
+    Type: Number
+    Default: 100
+    Description: Monthly cost budget threshold, in USD.
+
+  BudgetNotificationEmail:
+    Type: String
+    Default: ""
+    Description: Email for budget alerts. If blank, no budget is created.
+
+  StateVersionRetentionDays:
+    Type: Number
+    Default: 90
+    Description: Days to retain noncurrent tfstate versions before expiry.
+
+# ---------------------------------------------------------------------------
+# Conditions
+# ---------------------------------------------------------------------------
+Conditions:
+  ShouldCreateOIDC: !Equals [!Ref CreateOIDCProvider, "true"]
+  HasAlias: !Not [!Equals [!Ref AccountAlias, ""]]
+  HasBudgetEmail: !Not [!Equals [!Ref BudgetNotificationEmail, ""]]
+
+# ---------------------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------------------
+Resources:
+
+  # GitHub OIDC identity provider (one per account in the hubless model).
+  # AWS validates this specific IdP via its own trust store; the thumbprints
+  # are required by the API but no longer used for validation.
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: ShouldCreateOIDC
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fca
+      Tags:
+        - { Key: managed-by, Value: aws-account-bootstrap }
+
+  # The role GitHub Actions assumes DIRECTLY via AssumeRoleWithWebIdentity.
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref DeployRoleName
+      Path: !Ref DeployRolePath
+      MaxSessionDuration: !Ref MaxSessionDurationSeconds
+      ManagedPolicyArns: !Ref DeployRoleManagedPolicyArns
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRoleWithWebIdentity
+            Principal:
+              # Reference the resource when we create it (adds ordering),
+              # otherwise bind to the deterministic pre-existing ARN.
+              Federated: !If
+                - ShouldCreateOIDC
+                - !Ref GitHubOIDCProvider
+                - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Ref GitHubSubjectClaims
+      Tags:
+        - { Key: managed-by, Value: aws-account-bootstrap }
+
+  # Terraform/Terragrunt S3 backend bucket. Native S3 locking (use_lockfile),
+  # so no DynamoDB table. Never auto-deleted with the stack.
+  StateBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !If
+        - HasAlias
+        - !Sub ${AccountAlias}-tf-state-${AWS::Region}
+        - !Sub tf-state-${AWS::AccountId}-${AWS::Region}
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256   # SSE-S3, no KMS cost
+            BucketKeyEnabled: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-noncurrent-state
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: !Ref StateVersionRetentionDays
+          - Id: abort-incomplete-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      Tags:
+        - { Key: managed-by, Value: aws-account-bootstrap }
+
+  # Deny any non-TLS access to the state bucket.
+  StateBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref StateBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt StateBucket.Arn
+              - !Sub ${StateBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  # Self-registration: expose the backend coordinates via SSM so Terragrunt
+  # can read them instead of hardcoding names.
+  SsmStateBucket:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /org/tf/state-bucket
+      Type: String
+      Value: !Ref StateBucket
+      Tags:
+        managed-by: aws-account-bootstrap
+
+  SsmDeployRoleArn:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /org/tf/deploy-role-arn
+      Type: String
+      Value: !GetAtt DeployRole.Arn
+      Tags:
+        managed-by: aws-account-bootstrap
+
+  SsmAccountAlias:
+    Type: AWS::SSM::Parameter
+    Condition: HasAlias
+    Properties:
+      Name: /org/account/alias
+      Type: String
+      Value: !Ref AccountAlias
+      Tags:
+        managed-by: aws-account-bootstrap
+
+  # Monthly cost guard (global service; near-zero cost — 2 budgets free).
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Condition: HasBudgetEmail
+    Properties:
+      Budget:
+        BudgetName: !If [HasAlias, !Sub "${AccountAlias}-monthly", account-monthly]
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref BudgetLimitUSD
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref BudgetNotificationEmail
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref BudgetNotificationEmail
+
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
+Outputs:
+  DeployRoleArn:
+    Description: ARN GitHub Actions assumes via OIDC (set as a repo/environment secret).
+    Value: !GetAtt DeployRole.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-DeployRoleArn
+  StateBucketName:
+    Description: Terraform/Terragrunt S3 backend bucket.
+    Value: !Ref StateBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-StateBucket
+  OIDCProviderArn:
+    Description: GitHub OIDC provider ARN (created or pre-existing).
+    Value: !If
+      - ShouldCreateOIDC
+      - !Ref GitHubOIDCProvider
+      - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com

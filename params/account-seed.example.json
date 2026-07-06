@@ -1,0 +1,30 @@
+[
+  {
+    "ParameterKey": "GitHubSubjectClaims",
+    "ParameterValue": "repo:hansohn/terragrunt-aws-template:ref:refs/heads/main"
+  },
+  {
+    "ParameterKey": "CreateOIDCProvider",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "DeployRoleName",
+    "ParameterValue": "CodeDeployRole"
+  },
+  {
+    "ParameterKey": "DeployRolePath",
+    "ParameterValue": "/Org/"
+  },
+  {
+    "ParameterKey": "AccountAlias",
+    "ParameterValue": "sandbox"
+  },
+  {
+    "ParameterKey": "BudgetLimitUSD",
+    "ParameterValue": "100"
+  },
+  {
+    "ParameterKey": "BudgetNotificationEmail",
+    "ParameterValue": "cloud-alerts@example.com"
+  }
+]
