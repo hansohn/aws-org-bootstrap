@@ -1,7 +1,7 @@
 [
   {
     "ParameterKey": "GitHubSubjectClaims",
-    "ParameterValue": "repo:hansohn/terragrunt-aws-template:ref:refs/heads/main"
+    "ParameterValue": "repo:hansohn/terragrunt-*:*"
   },
   {
     "ParameterKey": "CreateOIDCProvider",
