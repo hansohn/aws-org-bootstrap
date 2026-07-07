@@ -13,17 +13,11 @@ jobs:
   cfn-lint:
     name: cfn-lint
     runs-on: ubuntu-latest
+    container:
+      image: hansohn/cloudformation:latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install cfn-lint
-        run: pip install cfn-lint
 
       - name: Lint templates
         run: cfn-lint templates/*.yaml

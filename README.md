@@ -43,7 +43,10 @@ notes — those are where real spend starts.
 - An AWS Organization with the target accounts.
 - For the **StackSet** path: run once from the management account —
   `aws cloudformation activate-organizations-access --region <region>`.
-- `aws` CLI, plus `jq` and (optionally) `cfn-lint` for local work.
+- The `aws` CLI, `jq`, and `cfn-lint` for local work — or skip installing them
+  and use the bundled toolchain: `make dev` drops into a shell in the
+  [`hansohn/cloudformation`][image] image (aws-cli, cfn-lint, rain, cfn-guard)
+  with the repo and `~/.aws` mounted. CI lints in the same image.
 
 ## Deploy
 
@@ -68,7 +71,7 @@ Run with credentials for the target account (e.g. assume its
 `OrganizationAccountAccessRole` from the management account):
 
 ```bash
-AWS_REGION=us-west-2 make deploy-account        # -> scripts/deploy-account.sh
+AWS_REGION=us-west-2 make cfn/deploy             # -> scripts/deploy-account.sh
 ```
 
 ### Option 2 — a whole OU (service-managed, auto-deploy)
@@ -77,7 +80,7 @@ Run from the management account. New accounts that later join the OU are seeded
 automatically:
 
 ```bash
-OU_IDS=ou-abcd-11112222 AWS_REGION=us-west-2 make deploy-stackset
+OU_IDS=ou-abcd-11112222 AWS_REGION=us-west-2 make cfn/deploy-stackset
 ```
 
 Same template, same params. Start with Option 1 and graduate to Option 2 — no
@@ -157,3 +160,6 @@ the account already has a GitHub OIDC provider (only one is allowed per account)
 - The deploy role defaults to `AdministratorAccess`. That's typical for a
   bootstrap deployer, but scope `DeployRoleManagedPolicyArns` down once your
   footprint is known.
+
+<!-- MARKDOWN LINKS & IMAGES -->
+[image]: https://github.com/hansohn/cloudformation-docker

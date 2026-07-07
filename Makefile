@@ -1,7 +1,7 @@
 MAKEFLAGS += --warn-undefined-variables
 SHELL := bash
 .SHELLFLAGS := -eu -o pipefail -c
-.DEFAULT_GOAL := help
+.DEFAULT_GOAL := dev
 .DELETE_ON_ERROR:
 .SUFFIXES:
 
@@ -10,11 +10,8 @@ export SELF ?= $(MAKE)
 PROJECT_PATH ?= $(shell pwd)
 include $(PROJECT_PATH)/Makefile.*
 
+export UNAME_S ?= $(shell uname -s)
 REPO_NAME ?= $(shell basename $(CURDIR))
-
-#-------------------------------------------------------------------------------
-# cloudformation
-#-------------------------------------------------------------------------------
 
 AWS_REGION     ?= us-west-2
 TEMPLATE       ?= templates/account-seed.yaml
@@ -22,6 +19,41 @@ PARAMS         ?= params/account-seed.json
 STACK_NAME     ?= tf-account-seed
 STACKSET_NAME  ?= tf-account-seed
 export AWS_REGION STACK_NAME STACKSET_NAME
+
+#-------------------------------------------------------------------------------
+# dev
+#-------------------------------------------------------------------------------
+
+DOCKER_IMAGE ?= hansohn/cloudformation
+DOCKER_TAG   ?= latest
+DOCKER_PULL  ?= always
+
+DOCKER_ARGS ?=
+DOCKER_ARGS += --interactive
+DOCKER_ARGS += --tty
+DOCKER_ARGS += --rm
+DOCKER_ARGS += --env AWS_PROFILE --env AWS_REGION
+DOCKER_ARGS += --workdir /app
+DOCKER_ARGS += --volume $(PWD):/app
+DOCKER_ARGS += --volume $(HOME)/.aws:/root/.aws
+DOCKER_ARGS += --volume $(HOME)/.gitconfig:/root/.gitconfig:ro
+DOCKER_ARGS += --pull $(DOCKER_PULL)
+
+SSH_AUTH_SOCK_MAGIC_PATH := /run/host-services/ssh-auth.sock
+ifeq ($(UNAME_S),Darwin)
+DOCKER_ARGS += --env SSH_AUTH_SOCK=$(SSH_AUTH_SOCK_MAGIC_PATH)
+DOCKER_ARGS += --volume $(SSH_AUTH_SOCK_MAGIC_PATH):$(SSH_AUTH_SOCK_MAGIC_PATH)
+endif
+
+## Run a local dev shell in the cloudformation image
+dev: ENTRYPOINT ?= bash
+dev:
+	@docker run $(DOCKER_ARGS) $(DOCKER_IMAGE):$(DOCKER_TAG) $(ENTRYPOINT)
+.PHONY: dev
+
+#-------------------------------------------------------------------------------
+# cloudformation
+#-------------------------------------------------------------------------------
 
 ## Check that the aws cli is available
 cfn/check:
