@@ -37,8 +37,8 @@ path.
 GitHub Actions (OIDC token, scoped by repo/branch)
         │
         ▼  AssumeRoleWithWebIdentity   (one hop)
-  CodeDeployRole  ──►  terraform/terragrunt apply  ──►  tfstate in this account's S3
-   (this account)                                        (native S3 lockfile)
+  GitHubActionsDeployRole  ──►  terraform/terragrunt apply  ──►  tfstate in this account's S3
+   (this account)                                                 (native S3 lockfile)
 ```
 
 Every target account gets its **own** OIDC provider + deploy role, seeded by
@@ -50,7 +50,7 @@ StackSet makes it zero-toil.
 | Resource | Purpose | Cost |
 |---|---|---|
 | `AWS::IAM::OIDCProvider` | Trust GitHub's token issuer | free |
-| `AWS::IAM::Role` (`Org/CodeDeployRole`) | What GitHub assumes directly; `sub`-scoped trust | free |
+| `AWS::IAM::Role` (`Org/GitHubActionsDeployRole`) | What GitHub assumes directly; `sub`-scoped trust | free |
 | `AWS::S3::Bucket` | Terraform backend, versioned + encrypted, **native lock** (no DynamoDB) | ~cents |
 | `AWS::S3::BucketPolicy` | Deny non-TLS access | free |
 | `AWS::SSM::Parameter` ×2–3 | Self-register state bucket / role ARN / alias | free |
@@ -142,8 +142,9 @@ target account — so Terragrunt no longer needs to look the account up:
 
 ## Local plans (least privilege)
 
-CI applies as `CodeDeployRole` (OIDC only). Humans get a separate **read-only
-`CodePlanRole`** so local plans match CI without granting apply rights. Set
+CI applies as `GitHubActionsDeployRole` (OIDC only). Humans get a separate
+**read-only `TerraformPlanRole`** so local plans match CI without granting
+apply rights. Set
 `PlanRoleTrustedPrincipalArns` to your SSO permission-set role pattern to create
 it (leave blank to skip — CI-only account):
 
@@ -162,7 +163,7 @@ sso_account_id = 111122223333
 sso_role_name = InfraDeveloper
 
 [profile sandbox-plan]
-role_arn = arn:aws:iam::111122223333:role/Org/CodePlanRole
+role_arn = arn:aws:iam::111122223333:role/Org/TerraformPlanRole
 source_profile = sandbox-sso
 ```
 

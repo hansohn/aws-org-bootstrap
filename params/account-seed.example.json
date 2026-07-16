@@ -9,7 +9,7 @@
   },
   {
     "ParameterKey": "DeployRoleName",
-    "ParameterValue": "CodeDeployRole"
+    "ParameterValue": "GitHubActionsDeployRole"
   },
   {
     "ParameterKey": "DeployRolePath",
