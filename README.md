@@ -23,8 +23,9 @@ organized in two layers:
 - **`templates/account-seed.yaml`** — per-account seed. Everything a fresh AWS
   account needs to be deployed into directly from GitHub Actions — no central CI
   account, no role chaining. Replicated across an OU by a StackSet.
-- **`templates/org-baseline.yaml`** — org-level baseline, deployed once to the
-  management account (currently a multi-region organization CloudTrail).
+- **`templates/cloudtrail.yaml`** — an org-level feature, deployed once to the
+  management account (a multi-region organization CloudTrail). Each additional
+  org-wide feature (GuardDuty, SCPs, …) gets its own top-level template here.
 
 ## The hubless model
 
@@ -36,20 +37,26 @@ path.
 GitHub Actions (OIDC token, scoped by repo/branch)
         │
         ▼  AssumeRoleWithWebIdentity   (one hop)
-  CodeDeployRole  ──►  terraform/terragrunt apply  ──►  tfstate in this account's S3
-   (this account)                                        (native S3 lockfile)
+  GitHubActionsDeployRole  ──►  terraform/terragrunt apply  ──►  tfstate in this account's S3
+   (this account)                                                 (native S3 lockfile)
 ```
 
-Every target account gets its **own** OIDC provider + deploy role, seeded by
-this template. That replication is normally the annoying part of hubless — the
-StackSet makes it zero-toil.
+By default every target account gets its **own** OIDC provider + deploy role,
+seeded by this template. That replication is normally the annoying part of
+hubless — the StackSet makes it zero-toil. (Accounts that don't deploy from
+GitHub can opt out per account — see [Parameters](#parameters).)
 
 ## What the seed creates (per account)
+
+Both features below are on by default and opt-out per account (see
+[Parameters](#parameters)): the GitHub deploy resources via
+`EnableGitHubActionsDeploy`, the Terraform backend via `EnableTerraformBackend`.
+The budget is always created.
 
 | Resource | Purpose | Cost |
 |---|---|---|
 | `AWS::IAM::OIDCProvider` | Trust GitHub's token issuer | free |
-| `AWS::IAM::Role` (`Org/CodeDeployRole`) | What GitHub assumes directly; `sub`-scoped trust | free |
+| `AWS::IAM::Role` (`Org/GitHubActionsDeployRole`) | What GitHub assumes directly; `sub`-scoped trust | free |
 | `AWS::S3::Bucket` | Terraform backend, versioned + encrypted, **native lock** (no DynamoDB) | ~cents |
 | `AWS::S3::BucketPolicy` | Deny non-TLS access | free |
 | `AWS::SSM::Parameter` ×2–3 | Self-register state bucket / role ARN / alias | free |
@@ -58,7 +65,7 @@ StackSet makes it zero-toil.
 Deliberately **not** here (opt-in later): AWS Config, GuardDuty, Security Hub,
 Transit Gateway. See the cost discussion in the design notes — those are where
 real spend starts. (Organization CloudTrail *is* included, as
-`org-baseline.yaml` — management events are free; only S3 storage costs, pennies
+`cloudtrail.yaml` — management events are free; only S3 storage costs, pennies
 at this scale.)
 
 ## Prerequisites
@@ -141,8 +148,9 @@ target account — so Terragrunt no longer needs to look the account up:
 
 ## Local plans (least privilege)
 
-CI applies as `CodeDeployRole` (OIDC only). Humans get a separate **read-only
-`CodePlanRole`** so local plans match CI without granting apply rights. Set
+CI applies as `GitHubActionsDeployRole` (OIDC only). Humans get a separate
+**read-only `TerraformPlanRole`** so local plans match CI without granting
+apply rights. Set
 `PlanRoleTrustedPrincipalArns` to your SSO permission-set role pattern to create
 it (leave blank to skip — CI-only account):
 
@@ -161,7 +169,7 @@ sso_account_id = 111122223333
 sso_role_name = InfraDeveloper
 
 [profile sandbox-plan]
-role_arn = arn:aws:iam::111122223333:role/Org/CodePlanRole
+role_arn = arn:aws:iam::111122223333:role/Org/TerraformPlanRole
 source_profile = sandbox-sso
 ```
 
@@ -172,10 +180,20 @@ AWS_PROFILE=sandbox-plan terragrunt plan
 
 ## Parameters
 
-See `templates/account-seed.yaml` for the full list. The ones you'll usually
-set: `GitHubSubjectClaims`, `PlanRoleTrustedPrincipalArns`,
-`BudgetNotificationEmail`, `BudgetLimitUSD`, and `CreateOIDCProvider=false` if
-the account already has a GitHub OIDC provider (only one is allowed per account).
+See `templates/account-seed.yaml` for the full list. Two master switches let an
+account opt out of a whole feature (both default `true`, overridable per account
+via StackSet parameter overrides):
+
+- `EnableGitHubActionsDeploy=false` — no OIDC provider, no deploy role. For an
+  account that doesn't deploy from GitHub Actions at all (security, log-archive,
+  centrally-managed).
+- `EnableTerraformBackend=false` — no state bucket, no plan role. For an account
+  that deploys from GitHub but not with Terraform.
+
+The ones you'll usually set: `GitHubSubjectClaims`,
+`PlanRoleTrustedPrincipalArns`, `BudgetNotificationEmail`, `BudgetLimitUSD`, and
+`CreateOIDCProvider=false` if the account already has a GitHub OIDC provider
+(only one is allowed per account).
 
 ## Notes
 

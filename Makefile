@@ -18,8 +18,8 @@ TEMPLATE       ?= templates/account-seed.yaml
 PARAMS         ?= params/account-seed.json
 STACK_NAME     ?= tf-account-seed
 STACKSET_NAME  ?= tf-account-seed
-ORG_STACK_NAME ?= org-baseline
-ORG_PARAMS     ?= params/org-baseline.json
+ORG_STACK_NAME ?= org-cloudtrail
+ORG_PARAMS     ?= params/cloudtrail.json
 export AWS_REGION STACK_NAME STACKSET_NAME ORG_STACK_NAME
 
 #-------------------------------------------------------------------------------
@@ -87,9 +87,9 @@ cfn/deploy-stackset: cfn/check
 	@./scripts/deploy-stackset.sh $(PARAMS)
 .PHONY: cfn/deploy-stackset
 
-## Deploy the org baseline (org CloudTrail) once to the management account
+## Deploy the organization CloudTrail once to the management account
 cfn/deploy-org: cfn/check
-	@echo "[INFO] Deploying org baseline '$(ORG_STACK_NAME)' to the management account."
+	@echo "[INFO] Deploying organization CloudTrail '$(ORG_STACK_NAME)' to the management account."
 	@./scripts/deploy-org.sh $(ORG_PARAMS)
 .PHONY: cfn/deploy-org
 
