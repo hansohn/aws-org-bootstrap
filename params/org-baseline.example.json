@@ -1,0 +1,14 @@
+[
+  {
+    "ParameterKey": "OrgId",
+    "ParameterValue": "o-xxxxxxxxxx"
+  },
+  {
+    "ParameterKey": "TrailName",
+    "ParameterValue": "org-trail"
+  },
+  {
+    "ParameterKey": "LogRetentionDays",
+    "ParameterValue": "400"
+  }
+]

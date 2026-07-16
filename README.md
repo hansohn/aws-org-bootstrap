@@ -1,9 +1,13 @@
-# aws-account-bootstrap
+# aws-org-bootstrap
 
-Day-0 CloudFormation seed for a **hubless** multi-account Terraform/Terragrunt
-setup. One small template lays down everything a fresh AWS account needs to be
-deployed into directly from GitHub Actions — no central CI account, no role
-chaining.
+Day-0 CloudFormation for a **hubless** multi-account Terraform/Terragrunt setup,
+organized in two layers:
+
+- **`templates/account-seed.yaml`** — per-account seed. Everything a fresh AWS
+  account needs to be deployed into directly from GitHub Actions — no central CI
+  account, no role chaining. Replicated across an OU by a StackSet.
+- **`templates/org-baseline.yaml`** — org-level baseline, deployed once to the
+  management account (currently a multi-region organization CloudTrail).
 
 ## The hubless model
 
@@ -35,8 +39,10 @@ StackSet makes it zero-toil.
 | `AWS::Budgets::Budget` | Monthly cost guard w/ email alerts | free (first 2) |
 
 Deliberately **not** here (opt-in later): AWS Config, GuardDuty, Security Hub,
-centralized logging, Transit Gateway. See the cost discussion in the design
-notes — those are where real spend starts.
+Transit Gateway. See the cost discussion in the design notes — those are where
+real spend starts. (Organization CloudTrail *is* included, as
+`org-baseline.yaml` — management events are free; only S3 storage costs, pennies
+at this scale.)
 
 ## Prerequisites
 
@@ -68,7 +74,8 @@ repo:hansohn/terragrunt-aws-template:environment:prod      # a GH environment
 ### Option 1 — one account (self-managed)
 
 Run with credentials for the target account (e.g. assume its
-`OrganizationAccountAccessRole` from the management account):
+`OrganizationAccountAccessRole` from the management account — this prompts for
+MFA if the role's trust policy requires it):
 
 ```bash
 AWS_REGION=us-west-2 make cfn/deploy             # -> scripts/deploy-account.sh

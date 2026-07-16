@@ -1,9 +1,10 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
-  Hubless per-account Terraform/Terragrunt bootstrap seed. Creates a GitHub
-  OIDC provider, a deploy role that GitHub Actions assumes DIRECTLY in this
-  account, an S3 backend bucket with native locking, SSM self-registration,
-  and a monthly cost budget. No central CI account and no role chaining.
+  Hubless per-account day-0 seed. Creates the Terraform/Terragrunt backend
+  (GitHub OIDC provider, a deploy role that GitHub Actions assumes DIRECTLY in
+  this account, an S3 backend bucket with native locking, SSM self-registration)
+  plus a read-only plan role and a monthly cost budget. No central CI account
+  and no role chaining.
 
 # ---------------------------------------------------------------------------
 # Parameters
@@ -120,7 +121,7 @@ Resources:
         - 6938fd4d98bab03faadb97b34396831e3780aea1
         - 1c58a3a8518e8759bf075b76b750d4f2df264fca
       Tags:
-        - { Key: managed-by, Value: aws-account-bootstrap }
+        - { Key: managed-by, Value: aws-org-bootstrap }
 
   # The role GitHub Actions assumes DIRECTLY via AssumeRoleWithWebIdentity.
   DeployRole:
@@ -148,7 +149,7 @@ Resources:
               StringLike:
                 token.actions.githubusercontent.com:sub: !Ref GitHubSubjectClaims
       Tags:
-        - { Key: managed-by, Value: aws-account-bootstrap }
+        - { Key: managed-by, Value: aws-org-bootstrap }
 
   # Read-only role humans assume (via their SSO permission set) to run local
   # plans that match CI. Created only when trusted principals are supplied.
@@ -193,7 +194,7 @@ Resources:
                   - s3:DeleteObject
                 Resource: !Sub ${StateBucket.Arn}/*.tflock
       Tags:
-        - { Key: managed-by, Value: aws-account-bootstrap }
+        - { Key: managed-by, Value: aws-org-bootstrap }
 
   # Terraform/Terragrunt S3 backend bucket. Native S3 locking (use_lockfile),
   # so no DynamoDB table. Never auto-deleted with the stack.
@@ -232,7 +233,7 @@ Resources:
             AbortIncompleteMultipartUpload:
               DaysAfterInitiation: 7
       Tags:
-        - { Key: managed-by, Value: aws-account-bootstrap }
+        - { Key: managed-by, Value: aws-org-bootstrap }
 
   # Deny any non-TLS access to the state bucket.
   StateBucketPolicy:
@@ -262,7 +263,7 @@ Resources:
       Type: String
       Value: !Ref StateBucket
       Tags:
-        managed-by: aws-account-bootstrap
+        managed-by: aws-org-bootstrap
 
   SsmDeployRoleArn:
     Type: AWS::SSM::Parameter
@@ -271,7 +272,7 @@ Resources:
       Type: String
       Value: !GetAtt DeployRole.Arn
       Tags:
-        managed-by: aws-account-bootstrap
+        managed-by: aws-org-bootstrap
 
   SsmAccountAlias:
     Type: AWS::SSM::Parameter
@@ -281,7 +282,7 @@ Resources:
       Type: String
       Value: !Ref AccountAlias
       Tags:
-        managed-by: aws-account-bootstrap
+        managed-by: aws-org-bootstrap
 
   # Monthly cost guard (global service; near-zero cost — 2 budgets free).
   MonthlyBudget:
