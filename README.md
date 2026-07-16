@@ -1,4 +1,21 @@
-# aws-org-bootstrap
+<div align="center">
+  <h3>aws-org-bootstrap</h3>
+  <p>Day-0 CloudFormation for a hubless multi-account AWS org</p>
+  <p>
+    <!-- Build Status -->
+    <a href="https://github.com/hansohn/aws-org-bootstrap/actions/workflows/validate.yml">
+      <img src="https://img.shields.io/github/actions/workflow/status/hansohn/aws-org-bootstrap/validate.yml?branch=main&style=for-the-badge">
+    </a>
+    <!-- GitHub Tag -->
+    <a href="https://github.com/hansohn/aws-org-bootstrap/tags/">
+      <img src="https://img.shields.io/github/tag/hansohn/aws-org-bootstrap.svg?style=for-the-badge">
+    </a>
+    <!-- License -->
+    <a href="https://github.com/hansohn/aws-org-bootstrap/blob/main/LICENSE">
+      <img src="https://img.shields.io/github/license/hansohn/aws-org-bootstrap.svg?style=for-the-badge">
+    </a>
+  </p>
+</div>
 
 Day-0 CloudFormation for a **hubless** multi-account Terraform/Terragrunt setup,
 organized in two layers:
