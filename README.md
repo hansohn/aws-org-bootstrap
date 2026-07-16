@@ -174,10 +174,20 @@ AWS_PROFILE=sandbox-plan terragrunt plan
 
 ## Parameters
 
-See `templates/account-seed.yaml` for the full list. The ones you'll usually
-set: `GitHubSubjectClaims`, `PlanRoleTrustedPrincipalArns`,
-`BudgetNotificationEmail`, `BudgetLimitUSD`, and `CreateOIDCProvider=false` if
-the account already has a GitHub OIDC provider (only one is allowed per account).
+See `templates/account-seed.yaml` for the full list. Two master switches let an
+account opt out of a whole feature (both default `true`, overridable per account
+via StackSet parameter overrides):
+
+- `EnableGitHubActionsDeploy=false` — no OIDC provider, no deploy role. For an
+  account that doesn't deploy from GitHub Actions at all (security, log-archive,
+  centrally-managed).
+- `EnableTerraformBackend=false` — no state bucket, no plan role. For an account
+  that deploys from GitHub but not with Terraform.
+
+The ones you'll usually set: `GitHubSubjectClaims`,
+`PlanRoleTrustedPrincipalArns`, `BudgetNotificationEmail`, `BudgetLimitUSD`, and
+`CreateOIDCProvider=false` if the account already has a GitHub OIDC provider
+(only one is allowed per account).
 
 ## Notes
 
