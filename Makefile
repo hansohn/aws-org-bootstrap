@@ -87,9 +87,9 @@ cfn/deploy-stackset: cfn/check
 	@./scripts/deploy-stackset.sh $(PARAMS)
 .PHONY: cfn/deploy-stackset
 
-## Deploy the org baseline (org CloudTrail) once to the management account
+## Deploy the organization CloudTrail once to the management account
 cfn/deploy-org: cfn/check
-	@echo "[INFO] Deploying org baseline '$(ORG_STACK_NAME)' to the management account."
+	@echo "[INFO] Deploying organization CloudTrail '$(ORG_STACK_NAME)' to the management account."
 	@./scripts/deploy-org.sh $(ORG_PARAMS)
 .PHONY: cfn/deploy-org
 

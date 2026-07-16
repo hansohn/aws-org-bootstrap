@@ -41,11 +41,17 @@ GitHub Actions (OIDC token, scoped by repo/branch)
    (this account)                                                 (native S3 lockfile)
 ```
 
-Every target account gets its **own** OIDC provider + deploy role, seeded by
-this template. That replication is normally the annoying part of hubless — the
-StackSet makes it zero-toil.
+By default every target account gets its **own** OIDC provider + deploy role,
+seeded by this template. That replication is normally the annoying part of
+hubless — the StackSet makes it zero-toil. (Accounts that don't deploy from
+GitHub can opt out per account — see [Parameters](#parameters).)
 
 ## What the seed creates (per account)
+
+Both features below are on by default and opt-out per account (see
+[Parameters](#parameters)): the GitHub deploy resources via
+`EnableGitHubActionsDeploy`, the Terraform backend via `EnableTerraformBackend`.
+The budget is always created.
 
 | Resource | Purpose | Cost |
 |---|---|---|

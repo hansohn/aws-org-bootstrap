@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Deploy the org-level baseline (org CloudTrail) ONCE to the management account.
+# Deploy the organization CloudTrail ONCE to the management account.
 # Run with management-account credentials.
 #
 # One-time prerequisite (no CloudFormation resource exists for it):

@@ -1,10 +1,12 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
-  Hubless per-account day-0 seed. Creates the Terraform/Terragrunt backend
-  (GitHub OIDC provider, a deploy role that GitHub Actions assumes DIRECTLY in
-  this account, an S3 backend bucket with native locking, SSM self-registration)
-  plus a read-only plan role and a monthly cost budget. No central CI account
-  and no role chaining.
+  Hubless per-account day-0 seed. Two opt-out features (both on by default,
+  set per account via StackSet parameter overrides): the GitHub Actions deploy
+  feature (EnableGitHubActionsDeploy — OIDC provider + a deploy role GitHub
+  assumes DIRECTLY, no central CI account, no role chaining) and the Terraform
+  state backend (EnableTerraformBackend — an S3 bucket with native locking, SSM
+  self-registration, and a read-only plan role). Every account also gets the
+  baseline (a monthly cost budget).
 
 # ---------------------------------------------------------------------------
 # Parameters
