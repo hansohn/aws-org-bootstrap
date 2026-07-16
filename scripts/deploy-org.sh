@@ -7,18 +7,18 @@
 #   aws organizations enable-aws-service-access \
 #     --service-principal cloudtrail.amazonaws.com
 #
-#   AWS_REGION=us-west-2 ./scripts/deploy-org.sh params/org-baseline.json
+#   AWS_REGION=us-west-2 ./scripts/deploy-org.sh params/cloudtrail.json
 #
 set -euo pipefail
 
-STACK_NAME="${ORG_STACK_NAME:-org-baseline}"
+STACK_NAME="${ORG_STACK_NAME:-org-cloudtrail}"
 REGION="${AWS_REGION:-us-west-2}"
-TEMPLATE="templates/org-baseline.yaml"
-PARAMS_FILE="${1:-params/org-baseline.json}"
+TEMPLATE="templates/cloudtrail.yaml"
+PARAMS_FILE="${1:-params/cloudtrail.json}"
 
 if [[ ! -f "$PARAMS_FILE" ]]; then
   echo "error: params file not found: $PARAMS_FILE" >&2
-  echo "       copy params/org-baseline.example.json and edit it." >&2
+  echo "       copy params/cloudtrail.example.json and edit it." >&2
   exit 1
 fi
 

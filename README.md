@@ -23,8 +23,9 @@ organized in two layers:
 - **`templates/account-seed.yaml`** — per-account seed. Everything a fresh AWS
   account needs to be deployed into directly from GitHub Actions — no central CI
   account, no role chaining. Replicated across an OU by a StackSet.
-- **`templates/org-baseline.yaml`** — org-level baseline, deployed once to the
-  management account (currently a multi-region organization CloudTrail).
+- **`templates/cloudtrail.yaml`** — an org-level feature, deployed once to the
+  management account (a multi-region organization CloudTrail). Each additional
+  org-wide feature (GuardDuty, SCPs, …) gets its own top-level template here.
 
 ## The hubless model
 
@@ -58,7 +59,7 @@ StackSet makes it zero-toil.
 Deliberately **not** here (opt-in later): AWS Config, GuardDuty, Security Hub,
 Transit Gateway. See the cost discussion in the design notes — those are where
 real spend starts. (Organization CloudTrail *is* included, as
-`org-baseline.yaml` — management events are free; only S3 storage costs, pennies
+`cloudtrail.yaml` — management events are free; only S3 storage costs, pennies
 at this scale.)
 
 ## Prerequisites

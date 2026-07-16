@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
-  Org-level baseline, deployed ONCE to the management account. Creates a
+  Organization CloudTrail, deployed ONCE to the management account. Creates a
   multi-region organization CloudTrail (management events only) and a retained,
   encrypted, TLS-only S3 bucket to receive the logs. Covers every current and
   future member account. Management events are free; only S3 storage costs.

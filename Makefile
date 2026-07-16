@@ -18,8 +18,8 @@ TEMPLATE       ?= templates/account-seed.yaml
 PARAMS         ?= params/account-seed.json
 STACK_NAME     ?= tf-account-seed
 STACKSET_NAME  ?= tf-account-seed
-ORG_STACK_NAME ?= org-baseline
-ORG_PARAMS     ?= params/org-baseline.json
+ORG_STACK_NAME ?= org-cloudtrail
+ORG_PARAMS     ?= params/cloudtrail.json
 export AWS_REGION STACK_NAME STACKSET_NAME ORG_STACK_NAME
 
 #-------------------------------------------------------------------------------
