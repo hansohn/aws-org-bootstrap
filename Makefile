@@ -18,7 +18,9 @@ TEMPLATE       ?= templates/account-seed.yaml
 PARAMS         ?= params/account-seed.json
 STACK_NAME     ?= tf-account-seed
 STACKSET_NAME  ?= tf-account-seed
-export AWS_REGION STACK_NAME STACKSET_NAME
+ORG_STACK_NAME ?= org-baseline
+ORG_PARAMS     ?= params/org-baseline.json
+export AWS_REGION STACK_NAME STACKSET_NAME ORG_STACK_NAME
 
 #-------------------------------------------------------------------------------
 # dev
@@ -84,6 +86,12 @@ cfn/deploy-stackset: cfn/check
 	@echo "[INFO] Deploying stack set '$(STACKSET_NAME)'."
 	@./scripts/deploy-stackset.sh $(PARAMS)
 .PHONY: cfn/deploy-stackset
+
+## Deploy the org baseline (org CloudTrail) once to the management account
+cfn/deploy-org: cfn/check
+	@echo "[INFO] Deploying org baseline '$(ORG_STACK_NAME)' to the management account."
+	@./scripts/deploy-org.sh $(ORG_PARAMS)
+.PHONY: cfn/deploy-org
 
 ## Delete the single-account stack (state bucket is retained)
 cfn/delete: cfn/check
