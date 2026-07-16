@@ -26,6 +26,18 @@ Parameters:
       account already has a token.actions.githubusercontent.com provider
       (only one is allowed per account); the deploy role still binds to it.
 
+  EnableTerraformBackend:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      Create the Terraform state backend for this account: the S3 state
+      bucket (native locking), its TLS-only bucket policy, the SSM parameter
+      that advertises it, and the read-only plan role. Set "false" for
+      accounts that do not run Terraform — they still get the GitHub OIDC
+      provider and deploy role (generic CI) plus the account baseline, just
+      no state bucket. Override per account via StackSet parameter overrides.
+
   DeployRoleName:
     Type: String
     Default: CodeDeployRole
@@ -98,9 +110,13 @@ Parameters:
 # ---------------------------------------------------------------------------
 Conditions:
   ShouldCreateOIDC: !Equals [!Ref CreateOIDCProvider, "true"]
+  ShouldCreateBackend: !Equals [!Ref EnableTerraformBackend, "true"]
   HasAlias: !Not [!Equals [!Ref AccountAlias, ""]]
   HasBudgetEmail: !Not [!Equals [!Ref BudgetNotificationEmail, ""]]
-  HasPlanRole: !Not [!Equals [!Join ["", !Ref PlanRoleTrustedPrincipalArns], ""]]
+  # The plan role reads tfstate, so it only exists when the backend does.
+  HasPlanRole: !And
+    - !Equals [!Ref EnableTerraformBackend, "true"]
+    - !Not [!Equals [!Join ["", !Ref PlanRoleTrustedPrincipalArns], ""]]
 
 # ---------------------------------------------------------------------------
 # Resources
@@ -200,6 +216,7 @@ Resources:
   # so no DynamoDB table. Never auto-deleted with the stack.
   StateBucket:
     Type: AWS::S3::Bucket
+    Condition: ShouldCreateBackend
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
@@ -238,6 +255,7 @@ Resources:
   # Deny any non-TLS access to the state bucket.
   StateBucketPolicy:
     Type: AWS::S3::BucketPolicy
+    Condition: ShouldCreateBackend
     Properties:
       Bucket: !Ref StateBucket
       PolicyDocument:
@@ -258,6 +276,7 @@ Resources:
   # can read them instead of hardcoding names.
   SsmStateBucket:
     Type: AWS::SSM::Parameter
+    Condition: ShouldCreateBackend
     Properties:
       Name: /org/tf/state-bucket
       Type: String
@@ -322,6 +341,7 @@ Outputs:
     Export:
       Name: !Sub ${AWS::StackName}-DeployRoleArn
   StateBucketName:
+    Condition: ShouldCreateBackend
     Description: Terraform/Terragrunt S3 backend bucket.
     Value: !Ref StateBucket
     Export:
