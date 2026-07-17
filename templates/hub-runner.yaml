@@ -1,0 +1,149 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Hub CI runner for the management account (deployed once). GitHub Actions
+  assumes TerraformRunnerRole via OIDC, resolves the target account through
+  AWS Organizations (no committed account map anywhere), then role-chains
+  into that account's TerraformDeploymentRole (seeded by account-seed.yaml
+  with HubRunnerRoleArn set). The runner itself can do almost nothing:
+  list accounts and assume the conventionally-named deploy role.
+
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
+Parameters:
+  GitHubSubjectClaims:
+    Type: CommaDelimitedList
+    Description: >-
+      Full OIDC `sub` claim patterns allowed to assume the runner role, e.g.
+      "repo:hansohn/terragrunt-aws-minecraft:ref:refs/heads/main". Wildcards
+      allowed ("repo:hansohn/terragrunt-*:*"). This is the single trust
+      boundary for every downstream account — scope it tightly.
+
+  CreateOIDCProvider:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      Create the GitHub OIDC provider in the management account. Set "false"
+      if a token.actions.githubusercontent.com provider already exists here
+      (only one is allowed per account); the runner role still binds to it.
+
+  RunnerRoleName:
+    Type: String
+    Default: TerraformRunnerRole
+    Description: Name of the hub role GitHub Actions assumes via OIDC.
+
+  RunnerRolePath:
+    Type: String
+    Default: /Org/
+    Description: IAM path for the runner role (must start and end with "/").
+    AllowedPattern: ^/.*/$
+
+  DeployRoleName:
+    Type: String
+    Default: TerraformDeploymentRole
+    Description: >-
+      Name of the per-account deploy role the runner chains into. Must match
+      the DeployRoleName used by account-seed.yaml in the target accounts.
+
+  DeployRolePath:
+    Type: String
+    Default: /Org/
+    Description: IAM path of the per-account deploy role (must match the seed).
+    AllowedPattern: ^/.*/$
+
+  MaxSessionDurationSeconds:
+    Type: Number
+    Default: 3600
+    MinValue: 3600
+    MaxValue: 43200
+    Description: >-
+      Max runner session length. Note the chained hop into the deploy role is
+      capped at 1 hour by STS regardless of this value.
+
+# ---------------------------------------------------------------------------
+# Conditions
+# ---------------------------------------------------------------------------
+Conditions:
+  ShouldCreateOIDC: !Equals [!Ref CreateOIDCProvider, "true"]
+
+# ---------------------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------------------
+Resources:
+
+  # GitHub OIDC identity provider — in the hub model this is the ONLY OIDC
+  # provider in the whole org. AWS validates this specific IdP via its own
+  # trust store; the thumbprints are required by the API but no longer used.
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: ShouldCreateOIDC
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fca
+      Tags:
+        - { Key: managed-by, Value: aws-org-bootstrap }
+
+  # The hub role GitHub Actions assumes via AssumeRoleWithWebIdentity.
+  # Deliberately near-powerless: resolve account names/tags via Organizations
+  # and chain into the conventionally-named deploy role — nothing else.
+  RunnerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RunnerRoleName
+      Path: !Ref RunnerRolePath
+      MaxSessionDuration: !Ref MaxSessionDurationSeconds
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRoleWithWebIdentity
+            Principal:
+              Federated: !If
+                - ShouldCreateOIDC
+                - !Ref GitHubOIDCProvider
+                - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Ref GitHubSubjectClaims
+      Policies:
+        - PolicyName: resolve-and-chain
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ResolveAccounts
+                Effect: Allow
+                Action:
+                  - organizations:ListAccounts
+                  - organizations:ListTagsForResource
+                Resource: "*"
+              - Sid: ChainIntoDeployRole
+                Effect: Allow
+                Action: sts:AssumeRole
+                Resource: !Sub arn:${AWS::Partition}:iam::*:role${DeployRolePath}${DeployRoleName}
+      Tags:
+        - { Key: managed-by, Value: aws-org-bootstrap }
+
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
+Outputs:
+  RunnerRoleArn:
+    Description: >-
+      ARN GitHub Actions assumes via OIDC — the single constant workflows
+      reference; also the HubRunnerRoleArn parameter for account-seed.yaml.
+    Value: !GetAtt RunnerRole.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-RunnerRoleArn
+  OIDCProviderArn:
+    Description: GitHub OIDC provider ARN (created or pre-existing).
+    Value: !If
+      - ShouldCreateOIDC
+      - !Ref GitHubOIDCProvider
+      - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com

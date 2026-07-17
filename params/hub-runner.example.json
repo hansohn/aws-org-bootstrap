@@ -1,0 +1,26 @@
+[
+  {
+    "ParameterKey": "GitHubSubjectClaims",
+    "ParameterValue": "repo:hansohn/terragrunt-*:*"
+  },
+  {
+    "ParameterKey": "CreateOIDCProvider",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "RunnerRoleName",
+    "ParameterValue": "TerraformRunnerRole"
+  },
+  {
+    "ParameterKey": "RunnerRolePath",
+    "ParameterValue": "/Org/"
+  },
+  {
+    "ParameterKey": "DeployRoleName",
+    "ParameterValue": "TerraformDeploymentRole"
+  },
+  {
+    "ParameterKey": "DeployRolePath",
+    "ParameterValue": "/Org/"
+  }
+]

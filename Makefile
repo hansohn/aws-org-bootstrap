@@ -20,7 +20,9 @@ STACK_NAME     ?= tf-account-seed
 STACKSET_NAME  ?= tf-account-seed
 ORG_STACK_NAME ?= org-cloudtrail
 ORG_PARAMS     ?= params/cloudtrail.json
-export AWS_REGION STACK_NAME STACKSET_NAME ORG_STACK_NAME
+HUB_STACK_NAME ?= tf-hub-runner
+HUB_PARAMS     ?= params/hub-runner.json
+export AWS_REGION STACK_NAME STACKSET_NAME ORG_STACK_NAME HUB_STACK_NAME
 
 #-------------------------------------------------------------------------------
 # dev
@@ -86,6 +88,12 @@ cfn/deploy-stackset: cfn/check
 	@echo "[INFO] Deploying stack set '$(STACKSET_NAME)'."
 	@./scripts/deploy-stackset.sh $(PARAMS)
 .PHONY: cfn/deploy-stackset
+
+## Deploy the hub CI runner once to the management account
+cfn/deploy-hub: cfn/check
+	@echo "[INFO] Deploying hub runner '$(HUB_STACK_NAME)' to the management account."
+	@./scripts/deploy-hub.sh $(HUB_PARAMS)
+.PHONY: cfn/deploy-hub
 
 ## Deploy the organization CloudTrail once to the management account
 cfn/deploy-org: cfn/check
