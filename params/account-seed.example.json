@@ -1,15 +1,19 @@
 [
   {
+    "ParameterKey": "HubRunnerRoleArn",
+    "ParameterValue": "arn:aws:iam::111122223333:role/Org/TerraformRunnerRole"
+  },
+  {
     "ParameterKey": "GitHubSubjectClaims",
-    "ParameterValue": "repo:hansohn/terragrunt-*:*"
+    "ParameterValue": ""
   },
   {
     "ParameterKey": "CreateOIDCProvider",
-    "ParameterValue": "true"
+    "ParameterValue": "false"
   },
   {
     "ParameterKey": "DeployRoleName",
-    "ParameterValue": "GitHubActionsDeployRole"
+    "ParameterValue": "TerraformDeploymentRole"
   },
   {
     "ParameterKey": "DeployRolePath",
