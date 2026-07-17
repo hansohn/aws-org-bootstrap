@@ -18,7 +18,7 @@
 </div>
 
 Day-0 CloudFormation for a multi-account Terraform/Terragrunt setup, organized
-in two layers:
+in three layers:
 
 - **`templates/hub-runner.yaml`** — the hub CI runner, deployed once to the
   management account: the org's only GitHub OIDC provider plus a near-powerless
@@ -66,7 +66,7 @@ out entirely — see [Parameters](#parameters).
 Both features below are on by default and opt-out per account (see
 [Parameters](#parameters)): the GitHub deploy resources via
 `EnableGitHubActionsDeploy`, the Terraform backend via `EnableTerraformBackend`.
-The budget is always created.
+The budget is created whenever `BudgetNotificationEmail` is set.
 
 | Resource | Purpose | Cost |
 |---|---|---|
@@ -160,9 +160,13 @@ steps:
       aws-region: us-west-2
 
   - id: account          # resolve deployment path -> org account id
+    env:
+      # e.g. ORG_PREFIX ("h5n-") + the deployments/<name>/ path segment
+      ACCOUNT_NAME: h5n-sandbox
     run: |
       ACCOUNT_ID=$(aws organizations list-accounts \
         --query "Accounts[?Name=='${ACCOUNT_NAME}'].Id" --output text)
+      test -n "$ACCOUNT_ID" || { echo "no org account named ${ACCOUNT_NAME}" >&2; exit 1; }
       echo "id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
 
   - uses: aws-actions/configure-aws-credentials@v5   # hop 2: hub -> target
