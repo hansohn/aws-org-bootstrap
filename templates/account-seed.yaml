@@ -82,7 +82,9 @@ Parameters:
   DeployRolePath:
     Type: String
     Default: /Org/
-    Description: IAM path for the deploy role (must start and end with "/").
+    Description: >-
+      IAM path for the roles this seed creates (deploy role and plan role;
+      must start and end with "/").
     AllowedPattern: ^/.*/$
 
   DeployRoleManagedPolicyArns:
@@ -99,7 +101,7 @@ Parameters:
     MinValue: 3600
     MaxValue: 43200
     Description: >-
-      Max role session length. Only reachable via direct OIDC (single hop);
+      Max role session length. Only relevant for direct OIDC (single hop);
       sessions arriving through the hub (role chaining) are capped at 1 hour
       by STS regardless of this value.
 
