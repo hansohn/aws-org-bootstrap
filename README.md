@@ -59,7 +59,7 @@ The budget is always created.
 | `AWS::IAM::Role` (`Org/GitHubActionsDeployRole`) | What GitHub assumes directly; `sub`-scoped trust | free |
 | `AWS::S3::Bucket` | Terraform backend, versioned + encrypted, **native lock** (no DynamoDB) | ~cents |
 | `AWS::S3::BucketPolicy` | Deny non-TLS access | free |
-| `AWS::SSM::Parameter` ×2–3 | Self-register state bucket / role ARN / alias | free |
+| `AWS::SSM::Parameter` ×2–4 | Self-register state bucket / deploy-role ARN / account name + alias | free |
 | `AWS::Budgets::Budget` | Monthly cost guard w/ email alerts | free (first 2) |
 
 Deliberately **not** here (opt-in later): AWS Config, GuardDuty, Security Hub,
