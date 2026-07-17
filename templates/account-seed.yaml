@@ -24,7 +24,8 @@ Parameters:
       accounts that do not deploy from GitHub Actions at all — e.g. a
       security, log-archive, or centrally-managed account. They still receive
       the account baseline (budget, etc.). Override per account via StackSet
-      parameter overrides.
+      parameter overrides. Requires at least one trust path (HubRunnerRoleArn
+      and/or GitHubSubjectClaims) — with neither, the deploy role is skipped.
 
   GitHubSubjectClaims:
     Type: CommaDelimitedList
@@ -157,17 +158,25 @@ Parameters:
 # Conditions
 # ---------------------------------------------------------------------------
 Conditions:
-  ShouldDeployGitHub: !Equals [!Ref EnableGitHubActionsDeploy, "true"]
+  GitHubDeployEnabled: !Equals [!Ref EnableGitHubActionsDeploy, "true"]
   # Trust paths for the deploy role: direct GitHub OIDC (subject claims
   # supplied), the hub runner (its ARN supplied), or both.
   HasSubjectClaims: !Not [!Equals [!Join ["", !Ref GitHubSubjectClaims], ""]]
   HasHubRunner: !Not [!Equals [!Ref HubRunnerRoleArn, ""]]
   BindsOIDC: !And
-    - !Condition ShouldDeployGitHub
+    - !Condition GitHubDeployEnabled
     - !Condition HasSubjectClaims
   TrustsHub: !And
-    - !Condition ShouldDeployGitHub
+    - !Condition GitHubDeployEnabled
     - !Condition HasHubRunner
+  # The deploy role only materializes with at least one trust path — enabling
+  # the feature with neither input would otherwise emit an empty (malformed)
+  # trust policy and fail the stack.
+  ShouldDeployGitHub: !And
+    - !Condition GitHubDeployEnabled
+    - !Or
+      - !Condition HasSubjectClaims
+      - !Condition HasHubRunner
   # Create the provider only when direct OIDC trust is in play AND we are
   # not reusing a provider that already exists in the account.
   ShouldCreateOIDC: !And
