@@ -16,6 +16,14 @@
     "ParameterValue": "/Org/"
   },
   {
+    "ParameterKey": "AccountName",
+    "ParameterValue": "example-sandbox"
+  },
+  {
+    "ParameterKey": "AccountAlias",
+    "ParameterValue": "example-sandbox"
+  },
+  {
     "ParameterKey": "PlanRoleTrustedPrincipalArns",
     "ParameterValue": "arn:aws:iam::*:role/aws-reserved/sso.amazonaws.com/*/AWSReservedSSO_InfraDeveloper_*"
   },
