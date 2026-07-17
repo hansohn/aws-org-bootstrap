@@ -100,12 +100,22 @@ Parameters:
     Default: arn:aws:iam::aws:policy/ReadOnlyAccess
     Description: Managed policies for the plan role. Read-only by default.
 
+  AccountName:
+    Type: String
+    Default: ""
+    Description: >-
+      Organization account name — the display name in AWS Organizations
+      (e.g. "h5n-sandbox"). Written to SSM at /org/account/name as account
+      metadata; does not affect resource names. Leave blank to skip it.
+
   AccountAlias:
     Type: String
     Default: ""
     Description: >-
-      Short account alias (e.g. "sandbox"). Used for the state bucket name
-      and tags. If blank, resources fall back to account-id-based names.
+      Short account alias (e.g. "h5n-sandbox"). Drives the state bucket name
+      ("<alias>-<region>-tf-state") and the budget name, and is written to SSM
+      at /org/account/alias. If blank, resources fall back to account-id-based
+      names and the alias parameter is skipped.
 
   BudgetLimitUSD:
     Type: Number
@@ -134,6 +144,7 @@ Conditions:
     - !Equals [!Ref CreateOIDCProvider, "true"]
   ShouldCreateBackend: !Equals [!Ref EnableTerraformBackend, "true"]
   HasAlias: !Not [!Equals [!Ref AccountAlias, ""]]
+  HasAccountName: !Not [!Equals [!Ref AccountName, ""]]
   HasBudgetEmail: !Not [!Equals [!Ref BudgetNotificationEmail, ""]]
   # The plan role reads tfstate, so it only exists when the backend does.
   HasPlanRole: !And
@@ -245,8 +256,8 @@ Resources:
     Properties:
       BucketName: !If
         - HasAlias
-        - !Sub ${AccountAlias}-tf-state-${AWS::Region}
-        - !Sub tf-state-${AWS::AccountId}-${AWS::Region}
+        - !Sub ${AccountAlias}-${AWS::Region}-tf-state
+        - !Sub ${AWS::AccountId}-${AWS::Region}-tf-state
       VersioningConfiguration:
         Status: Enabled
       BucketEncryption:
@@ -314,6 +325,16 @@ Resources:
       Name: /org/tf/deploy-role-arn
       Type: String
       Value: !GetAtt DeployRole.Arn
+      Tags:
+        managed-by: aws-org-bootstrap
+
+  SsmAccountName:
+    Type: AWS::SSM::Parameter
+    Condition: HasAccountName
+    Properties:
+      Name: /org/account/name
+      Type: String
+      Value: !Ref AccountName
       Tags:
         managed-by: aws-org-bootstrap
 
