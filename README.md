@@ -1,6 +1,6 @@
 <div align="center">
   <h3>aws-org-bootstrap</h3>
-  <p>Day-0 CloudFormation for a hubless multi-account AWS org</p>
+  <p>Day-0 CloudFormation for a multi-account AWS org</p>
   <p>
     <!-- Build Status -->
     <a href="https://github.com/hansohn/aws-org-bootstrap/actions/workflows/validate.yml">
@@ -17,46 +17,61 @@
   </p>
 </div>
 
-Day-0 CloudFormation for a **hubless** multi-account Terraform/Terragrunt setup,
-organized in two layers:
+Day-0 CloudFormation for a multi-account Terraform/Terragrunt setup, organized
+in three layers:
 
+- **`templates/hub-runner.yaml`** — the hub CI runner, deployed once to the
+  management account: the org's only GitHub OIDC provider plus a near-powerless
+  `TerraformRunnerRole` that resolves accounts via AWS Organizations and chains
+  into each account's deploy role.
 - **`templates/account-seed.yaml`** — per-account seed. Everything a fresh AWS
-  account needs to be deployed into directly from GitHub Actions — no central CI
-  account, no role chaining. Replicated across an OU by a StackSet.
+  account needs to be deployed into from GitHub Actions. Replicated across an
+  OU by a StackSet.
 - **`templates/cloudtrail.yaml`** — an org-level feature, deployed once to the
   management account (a multi-region organization CloudTrail). Each additional
   org-wide feature (GuardDuty, SCPs, …) gets its own top-level template here.
 
-## The hubless model
+## The hub model
 
-GitHub Actions authenticates to **each account directly** via OIDC and assumes
-that account's own deploy role. There is no shared "deployer" account in the
-path.
+GitHub Actions authenticates **once** via OIDC into the management account's
+`TerraformRunnerRole`, resolves the target account through AWS Organizations
+(the org itself is the account registry — no committed account map, no per-repo
+GitHub variables), then role-chains into that account's `TerraformDeploymentRole`:
 
 ```
 GitHub Actions (OIDC token, scoped by repo/branch)
         │
-        ▼  AssumeRoleWithWebIdentity   (one hop)
-  GitHubActionsDeployRole  ──►  terraform/terragrunt apply  ──►  tfstate in this account's S3
-   (this account)                                                 (native S3 lockfile)
+        ▼  AssumeRoleWithWebIdentity   (hop 1)
+  TerraformRunnerRole (management)
+        │   organizations:ListAccounts  →  resolve deployment path → account id
+        ▼  sts:AssumeRole              (hop 2, role chaining)
+  TerraformDeploymentRole  ──►  terraform/terragrunt apply  ──►  tfstate in this account's S3
+   (target account)                                               (native S3 lockfile)
 ```
 
-By default every target account gets its **own** OIDC provider + deploy role,
-seeded by this template. That replication is normally the annoying part of
-hubless — the StackSet makes it zero-toil. (Accounts that don't deploy from
-GitHub can opt out per account — see [Parameters](#parameters).)
+The runner role can do exactly two things: list org accounts and assume roles
+named `Org/TerraformDeploymentRole`. All GitHub↔AWS trust concentrates in its
+`sub`-claim conditions — that one policy gates every account.
+
+### The hubless alternative
+
+The seed still supports direct trust: set `GitHubSubjectClaims` (and a
+per-account OIDC provider) and GitHub assumes the account's deploy role in one
+hop, no management-account involvement. Set both parameters to allow both
+paths during a migration. Accounts that don't deploy from GitHub at all can opt
+out entirely — see [Parameters](#parameters).
 
 ## What the seed creates (per account)
 
 Both features below are on by default and opt-out per account (see
 [Parameters](#parameters)): the GitHub deploy resources via
 `EnableGitHubActionsDeploy`, the Terraform backend via `EnableTerraformBackend`.
-The budget is always created.
+The budget is created whenever `BudgetNotificationEmail` is set.
 
 | Resource | Purpose | Cost |
 |---|---|---|
-| `AWS::IAM::OIDCProvider` | Trust GitHub's token issuer | free |
-| `AWS::IAM::Role` (`Org/GitHubActionsDeployRole`) | What GitHub assumes directly; `sub`-scoped trust | free |
+| `AWS::IAM::Role` (`Org/TerraformDeploymentRole`) | The deploy role — trusts the hub runner (and/or GitHub directly) | free |
+| `AWS::IAM::OIDCProvider` | Trust GitHub's token issuer — **hubless accounts only** (the hub model needs no per-account provider) | free |
 | `AWS::S3::Bucket` | Terraform backend, versioned + encrypted, **native lock** (no DynamoDB) | ~cents |
 | `AWS::S3::BucketPolicy` | Deny non-TLS access | free |
 | `AWS::SSM::Parameter` ×2–4 | Self-register state bucket / deploy-role ARN / account name + alias | free |
@@ -83,17 +98,28 @@ at this scale.)
 Copy the example params and edit them (real files are gitignored):
 
 ```bash
+cp params/hub-runner.example.json params/hub-runner.json
 cp params/account-seed.example.json params/account-seed.json
 ```
 
-The one parameter you must get right is **`GitHubSubjectClaims`** — the OIDC
-`sub` patterns allowed to assume the role. This is your security boundary:
+The one parameter you must get right is **`GitHubSubjectClaims`** (on the hub
+runner) — the OIDC `sub` patterns allowed to assume it. This is your security
+boundary for the whole org:
 
 ```
 repo:hansohn/terragrunt-aws-template:ref:refs/heads/main   # only main
 repo:hansohn/terragrunt-aws-template:*                     # any ref (looser)
 repo:hansohn/terragrunt-aws-template:environment:prod      # a GH environment
 ```
+
+### Step 0 — the hub runner (once, management account)
+
+```bash
+AWS_REGION=us-west-2 make cfn/deploy-hub          # -> scripts/deploy-hub.sh
+```
+
+Take the `RunnerRoleArn` output and set it as `HubRunnerRoleArn` in
+`params/account-seed.json`, then seed the accounts:
 
 ### Option 1 — one account (self-managed)
 
@@ -119,36 +145,57 @@ rework.
 
 ## Wiring it into GitHub Actions
 
-After the seed applies, the stack output `DeployRoleArn` is the ARN your
-workflow assumes. Store it per environment (GitHub → Settings → Environments →
-`sandbox`/`prod` → secrets) so each environment maps to its own account:
+Workflows reference exactly one constant — the hub runner's ARN. No per-repo
+variables, no per-account secrets; the target account is resolved at runtime
+from the deployment path:
 
 ```yaml
 permissions:
   id-token: write        # REQUIRED for OIDC
   contents: read
 steps:
-  - uses: aws-actions/configure-aws-credentials@v4
+  - uses: aws-actions/configure-aws-credentials@v5   # hop 1: OIDC -> hub
     with:
-      role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+      role-to-assume: arn:aws:iam::<MGMT_ACCOUNT_ID>:role/Org/TerraformRunnerRole
+      aws-region: us-west-2
+
+  - id: account          # resolve deployment path -> org account id
+    env:
+      # e.g. ORG_PREFIX ("h5n-") + the deployments/<name>/ path segment
+      ACCOUNT_NAME: h5n-sandbox
+    run: |
+      ACCOUNT_ID=$(aws organizations list-accounts \
+        --query "Accounts[?Name=='${ACCOUNT_NAME}'].Id" --output text)
+      test -n "$ACCOUNT_ID" || { echo "no org account named ${ACCOUNT_NAME}" >&2; exit 1; }
+      echo "id=${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
+
+  - uses: aws-actions/configure-aws-credentials@v5   # hop 2: hub -> target
+    with:
+      role-to-assume: arn:aws:iam::${{ steps.account.outputs.id }}:role/Org/TerraformDeploymentRole
+      role-chaining: true
       aws-region: us-west-2
 ```
 
+(Hubless accounts instead store the seed's `DeployRoleArn` output as a
+repo/environment variable and assume it in one hop.)
+
 ## Integration with the Terragrunt template
 
-Because deploys are **direct**, the runner is already authenticated *in* the
-target account — so Terragrunt no longer needs to look the account up:
+By the time Terragrunt runs, the runner is already authenticated *in* the
+target account — the org lookup happened in the workflow, not in Terragrunt:
 
-- **Account ID** comes from `aws sts get-caller-identity` (you're already in the
-  account), replacing the `organizations:list-accounts` lookup entirely — no
-  org-wide enumeration, nothing to leak.
+- **Account ID** comes from `aws sts get-caller-identity` (you're already in
+  the account).
 - **State bucket / role ARN** can be read from the SSM parameters this seed
   writes (`/org/tf/state-bucket`, `/org/tf/deploy-role-arn`) instead of being
   reconstructed by string convention.
+- **Deployment paths must match org account names** (`deployments/<name>/…` ↔
+  the account's name in AWS Organizations) — that's the join key the workflow
+  resolves with `organizations:ListAccounts`.
 
 ## Local plans (least privilege)
 
-CI applies as `GitHubActionsDeployRole` (OIDC only). Humans get a separate
+CI applies as `TerraformDeploymentRole` (via the hub, or direct OIDC). Humans get a separate
 **read-only `TerraformPlanRole`** so local plans match CI without granting
 apply rights. Set
 `PlanRoleTrustedPrincipalArns` to your SSO permission-set role pattern to create
@@ -190,10 +237,12 @@ via StackSet parameter overrides):
 - `EnableTerraformBackend=false` — no state bucket, no plan role. For an account
   that deploys from GitHub but not with Terraform.
 
-The ones you'll usually set: `GitHubSubjectClaims`,
-`PlanRoleTrustedPrincipalArns`, `BudgetNotificationEmail`, `BudgetLimitUSD`, and
-`CreateOIDCProvider=false` if the account already has a GitHub OIDC provider
-(only one is allowed per account).
+The ones you'll usually set: `HubRunnerRoleArn` (hub model — the
+`RunnerRoleArn` output of `hub-runner.yaml`), `PlanRoleTrustedPrincipalArns`,
+`AccountName`/`AccountAlias`, `BudgetNotificationEmail`, and `BudgetLimitUSD`.
+Hubless accounts instead set `GitHubSubjectClaims` (and
+`CreateOIDCProvider=false` if the account already has a GitHub OIDC provider —
+only one is allowed per account).
 
 ## Notes
 

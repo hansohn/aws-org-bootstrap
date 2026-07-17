@@ -1,12 +1,14 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
-  Hubless per-account day-0 seed. Two opt-out features (both on by default,
-  set per account via StackSet parameter overrides): the GitHub Actions deploy
-  feature (EnableGitHubActionsDeploy — OIDC provider + a deploy role GitHub
-  assumes DIRECTLY, no central CI account, no role chaining) and the Terraform
-  state backend (EnableTerraformBackend — an S3 bucket with native locking, SSM
-  self-registration, and a read-only plan role). Every account also gets the
-  baseline (a monthly cost budget).
+  Per-account day-0 seed. Two opt-out features (both on by default, set per
+  account via StackSet parameter overrides): the GitHub Actions deploy feature
+  (EnableGitHubActionsDeploy — a deploy role trusted either by the hub
+  TerraformRunnerRole in the management account via role chaining
+  (HubRunnerRoleArn, see hub-runner.yaml), or DIRECTLY by GitHub OIDC
+  (GitHubSubjectClaims + a per-account OIDC provider), or both) and the
+  Terraform state backend (EnableTerraformBackend — an S3 bucket with native
+  locking, SSM self-registration, and a read-only plan role). Every account
+  also gets the baseline (a monthly cost budget).
 
 # ---------------------------------------------------------------------------
 # Parameters
@@ -22,16 +24,29 @@ Parameters:
       accounts that do not deploy from GitHub Actions at all — e.g. a
       security, log-archive, or centrally-managed account. They still receive
       the account baseline (budget, etc.). Override per account via StackSet
-      parameter overrides.
+      parameter overrides. Requires at least one trust path (HubRunnerRoleArn
+      and/or GitHubSubjectClaims) — with neither, the deploy role is skipped.
 
   GitHubSubjectClaims:
     Type: CommaDelimitedList
     Default: ""
     Description: >-
-      Full OIDC `sub` claim patterns allowed to assume the deploy role, e.g.
+      Full OIDC `sub` claim patterns allowed to assume the deploy role
+      DIRECTLY (hubless model), e.g.
       "repo:hansohn/terragrunt-aws-template:ref:refs/heads/main". Wildcards
       allowed ("repo:hansohn/infra:*"). One entry per repo/environment.
-      Required when EnableGitHubActionsDeploy=true; ignored otherwise.
+      Leave blank for hub-only accounts (HubRunnerRoleArn set) — no direct
+      GitHub trust, no per-account OIDC provider needed.
+
+  HubRunnerRoleArn:
+    Type: String
+    Default: ""
+    Description: >-
+      ARN of the hub TerraformRunnerRole in the management account (the
+      RunnerRoleArn output of hub-runner.yaml). When set, the deploy role
+      trusts it for sts:AssumeRole (role chaining — hub model). May be
+      combined with GitHubSubjectClaims to allow both trust paths during a
+      migration. Ignored when EnableGitHubActionsDeploy=false.
 
   CreateOIDCProvider:
     Type: String
@@ -41,7 +56,8 @@ Parameters:
       Create the GitHub OIDC provider in this account. Set "false" if the
       account already has a token.actions.githubusercontent.com provider
       (only one is allowed per account); the deploy role still binds to it.
-      Only applies when EnableGitHubActionsDeploy=true.
+      Only applies when EnableGitHubActionsDeploy=true AND GitHubSubjectClaims
+      is non-empty — hub-only accounts never create a provider.
 
   EnableTerraformBackend:
     Type: String
@@ -57,13 +73,18 @@ Parameters:
 
   DeployRoleName:
     Type: String
-    Default: GitHubActionsDeployRole
-    Description: Name of the role GitHub assumes to deploy in this account.
+    Default: TerraformDeploymentRole
+    Description: >-
+      Name of the deploy role in this account. In the hub model this must
+      match the DeployRoleName the hub-runner.yaml stack was deployed with
+      (the runner's assume policy names it by convention).
 
   DeployRolePath:
     Type: String
     Default: /Org/
-    Description: IAM path for the deploy role (must start and end with "/").
+    Description: >-
+      IAM path for the roles this seed creates (deploy role and plan role;
+      must start and end with "/").
     AllowedPattern: ^/.*/$
 
   DeployRoleManagedPolicyArns:
@@ -79,7 +100,10 @@ Parameters:
     Default: 3600
     MinValue: 3600
     MaxValue: 43200
-    Description: Max role session length (hubless = single hop, can be long).
+    Description: >-
+      Max role session length. Only relevant for direct OIDC (single hop);
+      sessions arriving through the hub (role chaining) are capped at 1 hour
+      by STS regardless of this value.
 
   PlanRoleName:
     Type: String
@@ -136,11 +160,29 @@ Parameters:
 # Conditions
 # ---------------------------------------------------------------------------
 Conditions:
-  ShouldDeployGitHub: !Equals [!Ref EnableGitHubActionsDeploy, "true"]
-  # Create the provider only when the GitHub deploy feature is on AND we are
+  GitHubDeployEnabled: !Equals [!Ref EnableGitHubActionsDeploy, "true"]
+  # Trust paths for the deploy role: direct GitHub OIDC (subject claims
+  # supplied), the hub runner (its ARN supplied), or both.
+  HasSubjectClaims: !Not [!Equals [!Join ["", !Ref GitHubSubjectClaims], ""]]
+  HasHubRunner: !Not [!Equals [!Ref HubRunnerRoleArn, ""]]
+  BindsOIDC: !And
+    - !Condition GitHubDeployEnabled
+    - !Condition HasSubjectClaims
+  TrustsHub: !And
+    - !Condition GitHubDeployEnabled
+    - !Condition HasHubRunner
+  # The deploy role only materializes with at least one trust path — enabling
+  # the feature with neither input would otherwise emit an empty (malformed)
+  # trust policy and fail the stack.
+  ShouldDeployGitHub: !And
+    - !Condition GitHubDeployEnabled
+    - !Or
+      - !Condition HasSubjectClaims
+      - !Condition HasHubRunner
+  # Create the provider only when direct OIDC trust is in play AND we are
   # not reusing a provider that already exists in the account.
   ShouldCreateOIDC: !And
-    - !Equals [!Ref EnableGitHubActionsDeploy, "true"]
+    - !Condition BindsOIDC
     - !Equals [!Ref CreateOIDCProvider, "true"]
   ShouldCreateBackend: !Equals [!Ref EnableTerraformBackend, "true"]
   HasAlias: !Not [!Equals [!Ref AccountAlias, ""]]
@@ -172,7 +214,8 @@ Resources:
       Tags:
         - { Key: managed-by, Value: aws-org-bootstrap }
 
-  # The role GitHub Actions assumes DIRECTLY via AssumeRoleWithWebIdentity.
+  # The deploy role for this account. Trusted by the hub TerraformRunnerRole
+  # (role chaining), by GitHub OIDC directly (hubless), or both.
   DeployRole:
     Type: AWS::IAM::Role
     Condition: ShouldDeployGitHub
@@ -184,20 +227,32 @@ Resources:
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
-          - Effect: Allow
-            Action: sts:AssumeRoleWithWebIdentity
-            Principal:
-              # Reference the resource when we create it (adds ordering),
-              # otherwise bind to the deterministic pre-existing ARN.
-              Federated: !If
-                - ShouldCreateOIDC
-                - !Ref GitHubOIDCProvider
-                - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
-            Condition:
-              StringEquals:
-                token.actions.githubusercontent.com:aud: sts.amazonaws.com
-              StringLike:
-                token.actions.githubusercontent.com:sub: !Ref GitHubSubjectClaims
+          # Hub model: the management account's runner role chains in.
+          - !If
+            - TrustsHub
+            - Effect: Allow
+              Action: sts:AssumeRole
+              Principal:
+                AWS: !Ref HubRunnerRoleArn
+            - !Ref AWS::NoValue
+          # Hubless model: GitHub Actions assumes the role directly.
+          - !If
+            - BindsOIDC
+            - Effect: Allow
+              Action: sts:AssumeRoleWithWebIdentity
+              Principal:
+                # Reference the resource when we create it (adds ordering),
+                # otherwise bind to the deterministic pre-existing ARN.
+                Federated: !If
+                  - ShouldCreateOIDC
+                  - !Ref GitHubOIDCProvider
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+              Condition:
+                StringEquals:
+                  token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                StringLike:
+                  token.actions.githubusercontent.com:sub: !Ref GitHubSubjectClaims
+            - !Ref AWS::NoValue
       Tags:
         - { Key: managed-by, Value: aws-org-bootstrap }
 
@@ -382,7 +437,10 @@ Resources:
 Outputs:
   DeployRoleArn:
     Condition: ShouldDeployGitHub
-    Description: ARN GitHub Actions assumes via OIDC (set as a repo/environment secret).
+    Description: >-
+      Deploy role ARN. Hub model: the runner derives this by convention —
+      nothing to configure in GitHub. Hubless: set it as a repo/environment
+      variable for configure-aws-credentials.
     Value: !GetAtt DeployRole.Arn
     Export:
       Name: !Sub ${AWS::StackName}-DeployRoleArn
@@ -393,7 +451,7 @@ Outputs:
     Export:
       Name: !Sub ${AWS::StackName}-StateBucket
   OIDCProviderArn:
-    Condition: ShouldDeployGitHub
+    Condition: BindsOIDC
     Description: GitHub OIDC provider ARN (created or pre-existing).
     Value: !If
       - ShouldCreateOIDC
