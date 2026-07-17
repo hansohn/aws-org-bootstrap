@@ -127,6 +127,12 @@ Resources:
                 Effect: Allow
                 Action: sts:AssumeRole
                 Resource: !Sub arn:${AWS::Partition}:iam::*:role${DeployRolePath}${DeployRoleName}
+                # Only roles inside THIS org — a foreign account creating a
+                # same-named role that trusts the runner still can't be chained
+                # into (the account-id wildcard alone would allow it).
+                Condition:
+                  StringEquals:
+                    aws:ResourceOrgID: ${aws:PrincipalOrgID}
       Tags:
         - { Key: managed-by, Value: aws-org-bootstrap }
 
